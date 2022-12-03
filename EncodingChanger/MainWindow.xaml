@@ -1,0 +1,54 @@
+﻿<Window x:Class="EncodingChanger.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:EncodingChanger"
+        mc:Ignorable="d"
+        Title="짱도 인코딩 변환기" Height="800" Width="800" FontSize="16">
+<Window.Resources>
+    <Style x:Key="ButtonStyle"
+           TargetType="{x:Type Button}">
+        <Setter Property="Padding"
+                Value="5, 5, 5, 5" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver"
+                     Value="True">
+                <Setter Property="Background"
+                        Value="Black" />
+                <Setter Property="Foreground"
+                        Value="White" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*"></ColumnDefinition>
+            <ColumnDefinition Width="*"></ColumnDefinition>
+        </Grid.ColumnDefinitions>
+        <ListBox Grid.Column="0" x:Name="_libFiles" Drop="_libFiles_OnDrop" AllowDrop="True" ></ListBox>
+        <Label Grid.Column="0" x:Name="_lbDragDrop" Content="파일을 끌어가꼬 놓아주세요." VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+        <StackPanel Grid.Column="1">
+            <ComboBox x:Name="_cbEncodings">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <Label Content="{Binding Name}"></Label>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <Button x:Name="_btnSaveOverwrite"
+                    Style="{StaticResource ButtonStyle}"
+                    Click="_btnSaveOverwrite_OnClick">덮어쓰기</Button>
+            <Button x:Name="_btnSaveAs"
+                    Style="{StaticResource ButtonStyle}"
+                    Click="_btnSaveAs_OnClick">새로운 곳에 저장하기</Button>
+            <Button x:Name="_btnClear"
+                    Style="{StaticResource ButtonStyle}"
+                    Click="_btnClear_OnClick">목록 비우기</Button>
+            <ProgressBar x:Name="_pgbChanged" Height="30" Orientation="Horizontal" Maximum="100" Minimum="0" Visibility="Hidden"></ProgressBar>
+            <Label x:Name="_lbChangedProgress" Content=""></Label>
+        </StackPanel>
+    </Grid>
+</Window>
