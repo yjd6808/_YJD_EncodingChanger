@@ -16,6 +16,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 
+using static System.Net.Mime.MediaTypeNames;
+
 using DataFormats = System.Windows.DataFormats;
 using DragEventArgs = System.Windows.DragEventArgs;
 using MessageBox = System.Windows.MessageBox;
@@ -33,13 +35,16 @@ namespace EncodingChanger
 
     public partial class MainWindow : Window
     {
-        private bool _changing = false;
+        private List<string> _extensionFilter = new();
 
         public MainWindow()
         {
             InitializeComponent();
             InitializeComboBox();
+            InitializeFilters();
         }
+
+        
 
         private void InitializeComboBox()
         {
@@ -79,17 +84,27 @@ namespace EncodingChanger
                         var subFiles = Directory.EnumerateFiles(file, "*.*", SearchOption.AllDirectories);   // 하위폴더 포함
 
                         foreach (string subFile in subFiles)
-                            _libFiles.Items.Add(subFile);
+                        {
+                            FilterAdd(subFile);
+                        }
                     }
                     else
                     {
-                        _libFiles.Items.Add(file);
+                        FilterAdd(file);
                     }
                 }
 
                 if (_libFiles.Items.Count > 0)
                     _lbDragDrop.Visibility = Visibility.Hidden;
             }
+        }
+
+        private void FilterAdd(string file)
+        {
+            if (_extensionFilter.Count > 0 && _extensionFilter.FindIndex(s => s == Path.GetExtension(file)) != -1)
+                _libFiles.Items.Add(file);
+            else if (_extensionFilter.Count == 0)
+                _libFiles.Items.Add(file);
         }
 
         private async Task SaveFileWithEncodingAsync(List<string> files, string targetDirectory = "")
@@ -218,6 +233,73 @@ namespace EncodingChanger
         {
             _libFiles.Items.Clear();
             _lbDragDrop.Visibility = Visibility.Visible;
+        }
+
+        private void _btnApplyFilter_OnClick(object sender, RoutedEventArgs e)
+        {
+            List<string>? filters = ParseExts(_tbExtentionsFilter.Text);
+            if (filters == null)
+            {
+                MessageBox.Show("파싱에 실패했습니다.\n*.cpp\n*.cs\n*.cc\n와 같은 형식으로 입력해주세요.");
+                return;
+            }
+
+            _extensionFilter = filters;
+            List<string>? originalFiles = ToFileList();
+
+            if (originalFiles != null)
+            {
+                _libFiles.Items.Clear();
+
+                originalFiles.FindAll(x => _extensionFilter.FindIndex(s => s == Path.GetExtension(x)) != -1)
+                    .ToList()
+                    .ForEach(x => _libFiles.Items.Add(x));
+            }
+
+            MessageBox.Show("필터가 적용되었습니다.");
+
+            File.WriteAllText("ext.txt", _tbExtentionsFilter.Text);
+        }
+
+        private void InitializeFilters()
+        {
+            if (!File.Exists("ext.txt"))
+                return;
+
+            string extensionTexts = File.ReadAllText("ext.txt");
+            List<string>? filters = ParseExts(extensionTexts);
+
+            if (filters == null)
+                return;
+
+            _tbExtentionsFilter.Text = extensionTexts;
+            _extensionFilter = filters;
+        }
+
+        private List<string>? ParseExts(string texts)
+        {
+            List<string> splited = texts.Replace("\r", "")
+                .Split("\n")
+                .ToList()
+                .FindAll(s => s.Length > 0)
+                .ToList();
+            List<string> filters = new();
+            int parsedCount = 0;
+
+            foreach (string s in splited)
+            {
+                string ext = Path.GetExtension(s);
+                if (ext.Length <= 0)
+                    continue;
+                filters.Add(ext);
+                parsedCount++;
+            }
+
+            if (parsedCount < splited.Count)
+                return null;
+
+            return filters;
+
         }
     }
 }

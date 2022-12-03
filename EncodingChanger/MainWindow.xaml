@@ -47,6 +47,16 @@
             <Button x:Name="_btnClear"
                     Style="{StaticResource ButtonStyle}"
                     Click="_btnClear_OnClick">목록 비우기</Button>
+            <Label Content="확장자명 필터링" />
+            <TextBox x:Name="_tbExtentionsFilter"
+                     TextWrapping="Wrap"
+                     MinHeight="30"
+                     MaxHeight="400"
+                     AcceptsReturn="True"/>
+            <Button x:Name="_btnApplyFilter"
+                    Style="{StaticResource ButtonStyle}"
+                    Click="_btnApplyFilter_OnClick"
+                    Content="확장자명 필터 적용" />
             <ProgressBar x:Name="_pgbChanged" Height="30" Orientation="Horizontal" Maximum="100" Minimum="0" Visibility="Hidden"></ProgressBar>
             <Label x:Name="_lbChangedProgress" Content=""></Label>
         </StackPanel>
