@@ -6,15 +6,16 @@
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <ApplicationIcon>14521.ico</ApplicationIcon>
+    <ApplicationIcon>2362335.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="14521.ico" />
+    <Content Include="2362335.ico" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Text.Encoding.CodePages" Version="7.0.0" />
+    <PackageReference Include="UTF.Unknown" Version="2.5.1" />
   </ItemGroup>
 
 </Project>

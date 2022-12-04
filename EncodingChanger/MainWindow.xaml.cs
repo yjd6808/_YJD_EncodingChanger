@@ -1,20 +1,14 @@
-ï»¿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Forms;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+
+using UtfUnknown;
 
 using static System.Net.Mime.MediaTypeNames;
 
@@ -25,7 +19,12 @@ using Path = System.IO.Path;
 
 namespace EncodingChanger
 {
-
+    public class DisposeAction : IDisposable
+    {
+        private readonly Action _action;
+        public DisposeAction(Action action) => _action = action;
+        public void Dispose() { _action();  }
+    }
 
     public class EncodingComboBoxItem
     {
@@ -33,29 +32,40 @@ namespace EncodingChanger
         public Encoding Encoding { get; set; }
     }
 
+    public class LoadedFileListBoxItem
+    {
+        public string VisiblePath { get; set; }
+        public string RealPath { get; set; }
+    }
+
     public partial class MainWindow : Window
     {
         private List<string> _extensionFilter = new();
+        private bool _working = false;
 
         public MainWindow()
         {
             InitializeComponent();
-            InitializeComboBox();
+            InitializeUI();
             InitializeFilters();
         }
 
-        
+        private void InitializeUI()
+        {
+            InitializeComboBox();
+            _pgbChanged.Height = 0;
+        }
 
         private void InitializeComboBox()
         {
-            // ì¸ì½”ë”© ëª©ë¡
+            // ÀÎÄÚµù ¸ñ·Ï
             // https://learn.microsoft.com/en-us/dotnet/api/system.text.encoding?redirectedfrom=MSDN&view=net-7.0
 
-            // UTF ì‹œê·¸ë‹ˆì³ ë„£ëŠ”ë²•
+            // UTF ½Ã±×´ÏÃÄ ³Ö´Â¹ı
             // https://stackoverflow.com/questions/5266069/streamwriter-and-utf-8-byte-order-marks
 
-            // ë‹¤ë¥¸ ì½”ë“œí˜ì´ì§€ ì¶”ê°€ ë°©ë²•
-            // System.Text.Encoding.CodePages ëˆ„ê²Ÿ ì„¤ì¹˜í•´ì¤Œ
+            // ´Ù¸¥ ÄÚµåÆäÀÌÁö Ãß°¡ ¹æ¹ı
+            // System.Text.Encoding.CodePages ´©°Ù ¼³Ä¡ÇØÁÜ
             // https://stackoverflow.com/questions/50858209/system-notsupportedexception-no-data-is-available-for-encoding-1252
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -81,12 +91,10 @@ namespace EncodingChanger
                 {
                     if ((File.GetAttributes(file) & FileAttributes.Directory) == FileAttributes.Directory)
                     {
-                        var subFiles = Directory.EnumerateFiles(file, "*.*", SearchOption.AllDirectories);   // í•˜ìœ„í´ë” í¬í•¨
+                        var subFiles = Directory.EnumerateFiles(file, "*.*", SearchOption.AllDirectories);   // ÇÏÀ§Æú´õ Æ÷ÇÔ
 
                         foreach (string subFile in subFiles)
-                        {
                             FilterAdd(subFile);
-                        }
                     }
                     else
                     {
@@ -102,20 +110,48 @@ namespace EncodingChanger
         private void FilterAdd(string file)
         {
             if (_extensionFilter.Count > 0 && _extensionFilter.FindIndex(s => s == Path.GetExtension(file)) != -1)
-                _libFiles.Items.Add(file);
+                _libFiles.Items.Add(new LoadedFileListBoxItem { RealPath = file, VisiblePath = AbbreviatePath(file) });
             else if (_extensionFilter.Count == 0)
-                _libFiles.Items.Add(file);
+                _libFiles.Items.Add(new LoadedFileListBoxItem { RealPath = file, VisiblePath = AbbreviatePath(file) });
         }
+
+        private string AbbreviatePath(string path, int containParentDirectoryCount = 3, bool root = true)
+        {
+            List<string> splited = path.Split(@"\").ToList();
+            LinkedList<string> builder = new ();
+
+            for (int i = splited.Count - 2, level = 1; i >= 1; --i, ++level)
+            {
+                if (level > containParentDirectoryCount)
+                {
+                    builder.AddFirst("..\\");
+                    continue;
+                }
+
+                builder.AddFirst(splited[i] + "\\");
+            }
+
+            if (root) builder.AddFirst(splited[0] + "\\");
+            builder.AddLast(splited[^1]);
+
+            return builder.Aggregate(string.Empty, (current, s) => current + s);
+        }
+
+
 
         private async Task SaveFileWithEncodingAsync(List<string> files, string targetDirectory = "")
         {
+            _working = true;
+            using DisposeAction _ = new(() => _working = false);
             int fileCount = files.Count;
             int changedCount = 0;
-            Encoding encoding = (_cbEncodings.SelectedItem as EncodingComboBoxItem).Encoding;
+            Encoding dstEncoding = (_cbEncodings.SelectedItem as EncodingComboBoxItem).Encoding;
 
             _pgbChanged.Visibility = Visibility.Visible;
-            _lbChangedProgress.Visibility = Visibility.Visible;
-            _lbChangedProgress.Content = $"{changedCount} / {fileCount}";
+            _pgbChanged.Height = 30;
+            _lbInfo.Content = $"{changedCount} / {fileCount}";
+
+            StringBuilder log = new(10000);
 
             foreach (string filePath in files)
             {
@@ -124,29 +160,61 @@ namespace EncodingChanger
 
                 try
                 {
-                    string readText = await File.ReadAllTextAsync(filePath);
+                    // ÀÎÄÚµù º¯°æ ¹æ¹ı
+                    // https://stackoverflow.com/questions/1922199/c-sharp-convert-string-from-utf-8-to-iso-8859-1-latin1-h
+                    // UTF¿ÜÀÇ ÀÎÄÚµù °¨Áö ¶óÀÌºê·¯¸®
+                    // https://github.com/CharsetDetector/UTF-unknown
+                    // C# ÀÎÄÚµù º¯È¯½Ã ÁÖÀÇ»çÇ× °ü·ÃÇØ¼­ Á¤¸®
+                    //  1. .NET stringÀº ±âº»ÀûÀ¸·Î UTF-16LE ÀÎÄÚµùÀ» »ç¿ë (https://github.com/dotnet/standard/issues/260#issuecomment-290834776)
+                    //  2. File.WriteAllText´Â ±âº»ÀûÀ¸·Î UTF-8·Î µğÆúÆ® ÀúÀåÇÏµµ·Ï ÇÔ.
+                    //  3. File.ReadAllText´Â ±âº»ÀûÀ¸·Î UTF-8·Î ÀĞµµ·Ï ÇÔ.
+                    //  ÀÌ¸¦ Á¾ÇÕÇØº¼ ¶§ File.ReadAllText½Ã¿¡ ±âÁ¸ ¹®¼­ÀÇ ÀÎÄÚµùÇü½ÄÀ¸·Î ÀĞ¾î¿Í¾ßÇÑ´Ù.
+                    //  ¿¹¸¦µé¾î ¾î¶² ¹®¼­°¡ CP949·Î ÀÎÄÚµùµÇ¾îÀÖ´Ù°í ÇÏÀÚ.
+                    //     1. Encoding.GetEncoding(949).GetDecoder()¸¦ »ç¿ëÇØ¼­ C# È¯°æÀÇ UTF-16LE Çü½ÄÀ¸·Î ÀúÀå
+                    //     2. ±×¸®°í UTF-16LEÇü½ÄÀÇ ¹®ÀÚ¿­À» ¸ñÇ¥ÇÑ ÀÎÄÚµùÀ¸·Î º¯°æÇØ¼­ ÀúÀåÇØ¾ßÇÑ´Ù.
+                    //     ÀÌ·¸°Ô ¼öÇàÇØÁÖ¸é ±âÁ¸ ¹®ÀÚµéÀÌ ±úÁöÁö ¾Ê°í Àß º¯È¯µÉ °ÍÀÌ´Ù.
 
+                    string fileName = Path.GetFileName(filePath);
+                    DetectionResult result = CharsetDetector.DetectFromFile(filePath);
+
+                    if (result.Detected == null)
+                    {
+                        log.Append($"{fileName} ¹®ÀÚ¼Â ÀÎÄÚµù °¨Áö ½ÇÆĞ\n");
+                        continue;
+                    }
+
+                    // 60% °¨ÁöÀ² ÀÌÇÏ¸é º¯È¯ ¸øÇÏµµ·Ï ÇÑ´Ù.
+                    if (result.Detected.Confidence < 0.6f)
+                    {
+                        log.Append($"{fileName} ¹®ÀÚ¼Â ÀÎÄÚµù °¨Áö ½ÇÆĞ({result.Detected.Confidence.ToString("0.00")}: {result.Detected.EncodingName})\n");
+                        continue;
+                    }
+
+                    string content = await File.ReadAllTextAsync(filePath, result.Detected.Encoding);
                     if (targetDirectory.Length > 0)
-                        await File.WriteAllTextAsync(Path.Combine(targetDirectory, Path.GetFileName(filePath)), readText, encoding);
+                        await File.WriteAllTextAsync(Path.Combine(targetDirectory, fileName), content, dstEncoding);
                     else
-                        await File.WriteAllTextAsync(filePath, readText, encoding);
+                        await File.WriteAllTextAsync(filePath, content, dstEncoding);
 
                     ++changedCount;
                     _pgbChanged.Value = changedCount / (double)fileCount * 100;
-                    _lbChangedProgress.Content = $"${changedCount} / {fileCount}";
+                    
+                    _lbInfo.Content = $"${changedCount} / {fileCount}";
+
                 }
                 catch
                 {
 
                 }
 
-                _lbChangedProgress.Content = $"{changedCount} / {fileCount}";
+                _lbInfo.Content = $"{changedCount} / {fileCount}";
             }
 
 
-            MessageBox.Show($"{fileCount}ì¤‘ {changedCount}ê°œì˜ íŒŒì¼ì„ ì„±ê³µì ìœ¼ë¡œ ë³€í™˜í•˜ì˜€ìŠµë‹ˆë‹¤.");
-            _lbChangedProgress.Visibility = Visibility.Hidden;
+            MessageBox.Show($"{fileCount}Áß {changedCount}°³ÀÇ ÆÄÀÏÀ» ¼º°øÀûÀ¸·Î º¯È¯ÇÏ¿´½À´Ï´Ù. \n\n{log.ToString()}");
+            _lbInfo.Content = "";
             _pgbChanged.Visibility = Visibility.Hidden;
+            _pgbChanged.Height = 0;
         }
 
         private List<string>? ToFileList()
@@ -155,10 +223,10 @@ namespace EncodingChanger
 
             foreach (object libFilesItem in _libFiles.Items)
             {
-                if (libFilesItem is not string filePath)
+                if (libFilesItem is not LoadedFileListBoxItem item)
                     return null;
 
-                files.Add(filePath);
+                files.Add(item.RealPath);
             }
 
             return files;
@@ -168,7 +236,7 @@ namespace EncodingChanger
         {
             if (_libFiles.Items.Count == 0)
             {
-                MessageBox.Show("ë¨¼ì € ë³€í™˜í•  íŒŒì¼ë“¤ì„ ë“œë˜ê·¸ ì•¤ ë“œë í•´ì£¼ì„¸ìš”.");
+                MessageBox.Show("¸ÕÀú º¯È¯ÇÒ ÆÄÀÏµéÀ» µå·¡±× ¾Ø µå¶ø ÇØÁÖ¼¼¿ä.");
                 return;
             }
 
@@ -177,7 +245,7 @@ namespace EncodingChanger
 
             if (files == null)
             {
-                MessageBox.Show("ì´ëŸ´ìˆ˜ ì—†ì–´ìš”... í”„ë¡œê·¸ë¨ ê»ë‹¤ê°€ ë‹¤ì‹œ í•´ë³´ì„¸ìš”.");
+                MessageBox.Show("ÀÌ·²¼ö ¾ø¾î¿ä... ÇÁ·Î±×·¥ ²¯´Ù°¡ ´Ù½Ã ÇØº¸¼¼¿ä.");
                 return;
             }
 
@@ -188,7 +256,7 @@ namespace EncodingChanger
         {
             if (_libFiles.Items.Count == 0)
             {
-                MessageBox.Show("ë¨¼ì € ë³€í™˜í•  íŒŒì¼ë“¤ì„ ë“œë˜ê·¸ ì•¤ ë“œë í•´ì£¼ì„¸ìš”.");
+                MessageBox.Show("¸ÕÀú º¯È¯ÇÒ ÆÄÀÏµéÀ» µå·¡±× ¾Ø µå¶ø ÇØÁÖ¼¼¿ä.");
                 return;
             }
 
@@ -197,7 +265,7 @@ namespace EncodingChanger
 
             if (files == null)
             {
-                MessageBox.Show("ì´ëŸ´ìˆ˜ ì—†ì–´ìš”... í”„ë¡œê·¸ë¨ ê»ë‹¤ê°€ ë‹¤ì‹œ í•´ë³´ì„¸ìš”.");
+                MessageBox.Show("ÀÌ·²¼ö ¾ø¾î¿ä... ÇÁ·Î±×·¥ ²¯´Ù°¡ ´Ù½Ã ÇØº¸¼¼¿ä.");
                 return;
             }
 
@@ -213,7 +281,7 @@ namespace EncodingChanger
 
             if (duplicateFiles != string.Empty)
             {
-                MessageBox.Show("ì¤‘ë³µëœ ì´ë¦„ì˜ íŒŒì¼ë“¤ì´ ìˆìŠµë‹ˆë‹¤.\ní™•ì¸ í›„ ë‹¤ì‹œ ì‹œë„í•´ì£¼ì„¸ìš”.\n\n" + duplicateFiles);
+                MessageBox.Show("Áßº¹µÈ ÀÌ¸§ÀÇ ÆÄÀÏµéÀÌ ÀÖ½À´Ï´Ù.\nÈ®ÀÎ ÈÄ ´Ù½Ã ½ÃµµÇØÁÖ¼¼¿ä.\n\n" + duplicateFiles);
                 return;
             }
 
@@ -226,7 +294,7 @@ namespace EncodingChanger
                 return;
             }
 
-            MessageBox.Show("ì œëŒ€ë¡œëœ ë””ë ‰í† ë¦¬ë¥¼ ì„ íƒí•´ì£¼ì„¸ìš”.");
+            MessageBox.Show("Á¦´ë·ÎµÈ µğ·ºÅä¸®¸¦ ¼±ÅÃÇØÁÖ¼¼¿ä.");
         }
 
         private void _btnClear_OnClick(object sender, RoutedEventArgs e)
@@ -240,7 +308,7 @@ namespace EncodingChanger
             List<string>? filters = ParseExts(_tbExtentionsFilter.Text);
             if (filters == null)
             {
-                MessageBox.Show("íŒŒì‹±ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.\n*.cpp\n*.cs\n*.cc\nì™€ ê°™ì€ í˜•ì‹ìœ¼ë¡œ ì…ë ¥í•´ì£¼ì„¸ìš”.");
+                MessageBox.Show("ÆÄ½Ì¿¡ ½ÇÆĞÇß½À´Ï´Ù.\n*.cpp\n*.cs\n*.cc\n¿Í °°Àº Çü½ÄÀ¸·Î ÀÔ·ÂÇØÁÖ¼¼¿ä.");
                 return;
             }
 
@@ -256,7 +324,7 @@ namespace EncodingChanger
                     .ForEach(x => _libFiles.Items.Add(x));
             }
 
-            MessageBox.Show("í•„í„°ê°€ ì ìš©ë˜ì—ˆìŠµë‹ˆë‹¤.");
+            MessageBox.Show("ÇÊÅÍ°¡ Àû¿ëµÇ¾ú½À´Ï´Ù.");
 
             File.WriteAllText("ext.txt", _tbExtentionsFilter.Text);
         }
@@ -299,8 +367,40 @@ namespace EncodingChanger
                 return null;
 
             return filters;
-
         }
+
+        private void _libFiles_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            
+
+            if (_libFiles.Items.Count == 0)
+                return;
+
+            if (_libFiles.SelectedIndex == -1)
+                return;
+
+            LoadedFileListBoxItem? item = _libFiles.Items[_libFiles.SelectedIndex] as LoadedFileListBoxItem;
+
+            if (item == null)
+                return;
+
+            if (_working)
+                return;
+
+            DetectionResult result = CharsetDetector.DetectFromFile(item.RealPath);
+
+            if (result.Detected == null)
+            {
+                _lbInfo.Content = "ÀÎÄÚµù °¨Áö ½ÇÆĞ";
+                return;
+            }
+
+            _lbInfo.Content = $"ÀÎÄÚµù: {result.Detected.EncodingName}";
+            IList<DetectionDetail> allDetails = result.Details;
+        }
+
+
+
     }
 }
 

@@ -27,7 +27,13 @@
             <ColumnDefinition Width="2*"></ColumnDefinition>
             <ColumnDefinition Width="*"></ColumnDefinition>
         </Grid.ColumnDefinitions>
-        <ListBox Grid.Column="0" x:Name="_libFiles" Drop="_libFiles_OnDrop" AllowDrop="True" ></ListBox>
+        <ListBox Grid.Column="0" x:Name="_libFiles" Drop="_libFiles_OnDrop" AllowDrop="True" SelectionChanged="_libFiles_OnSelectionChanged">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Label Content="{Binding VisiblePath}"></Label>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
         <Label Grid.Column="0" x:Name="_lbDragDrop" Content="파일을 끌어가꼬 놓아주세요." VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
         <StackPanel Grid.Column="1">
             <ComboBox x:Name="_cbEncodings">
@@ -58,7 +64,7 @@
                     Click="_btnApplyFilter_OnClick"
                     Content="확장자명 필터 적용" />
             <ProgressBar x:Name="_pgbChanged" Height="30" Orientation="Horizontal" Maximum="100" Minimum="0" Visibility="Hidden"></ProgressBar>
-            <Label x:Name="_lbChangedProgress" Content=""></Label>
+            <Label x:Name="_lbInfo" Content=""></Label>
         </StackPanel>
     </Grid>
 </Window>
